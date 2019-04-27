@@ -8,6 +8,7 @@ import edu.coursera.concurrent.boruvka.Component;
 import java.util.Queue;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * A parallel implementation of Boruvka's algorithm to compute a Minimum
@@ -28,7 +29,42 @@ public final class ParBoruvka extends AbstractBoruvka<ParBoruvka.ParComponent> {
     @Override
     public void computeBoruvka(final Queue<ParComponent> nodesLoaded,
             final SolutionToBoruvka<ParComponent> solution) {
-        throw new UnsupportedOperationException();
+
+        ParComponent node;
+
+        while (!nodesLoaded.isEmpty()) {
+            node = nodesLoaded.poll();
+
+            if (node == null || !node.lock.tryLock()) {
+                continue;
+            }
+
+            if (node.isDead) {
+                node.lock.unlock();
+                continue;
+            }
+
+            final Edge<ParComponent> e = node.getMinEdge();
+            if (e == null) {
+                node.lock.unlock();
+                solution.setSolution(node);
+                break;
+            }
+
+            final ParComponent other = e.getOther(node);
+            if (!other.lock.tryLock()) {
+                node.lock.unlock();
+                nodesLoaded.add(node);
+                continue;
+            }
+
+            other.isDead = true;
+            node.merge(other, e.weight());
+            node.lock.unlock();
+            other.lock.unlock();
+
+            nodesLoaded.add(node);
+        }
     }
 
     /**
@@ -42,6 +78,7 @@ public final class ParBoruvka extends AbstractBoruvka<ParBoruvka.ParComponent> {
          *  it.
          */
         public final int nodeId;
+        public final ReentrantLock lock = new ReentrantLock();
 
         /**
          * List of edges attached to this component, sorted by weight from least
